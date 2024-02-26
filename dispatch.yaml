@@ -1,0 +1,68 @@
+- name: Install dispatch component
+  hosts: dispatch
+  become: yes
+  tasks:
+  - name: install golang
+    ansible.builtin.yum:
+      name: golang
+      state: present
+
+  - name: check user roboshop exist or not
+    ansible.builtin.command: id roboshop
+    register: out # output is the variable name
+    ignore_errors: true
+
+  - when: out.rc != 0
+    name: create user roboshop
+    become: yes # we need sudo access for this task only
+    ansible.builtin.user:
+      name: roboshop
+
+  - name: check /app directory exists or not
+    ansible.builtin.stat:
+      path: /app
+    register: directory
+
+  - name: print the directory stats
+    ansible.builtin.debug:
+      msg: "output: {{directory}}"
+
+  - when: directory.stat.exists == False
+    name: create /app directory
+    ansible.builtin.file:
+      path: /app
+      state: directory
+
+  - name: download dispatch aritfact
+    ansible.builtin.get_url:
+      url: https://roboshop-builds.s3.amazonaws.com/dispatch.zip
+      dest: /tmp
+
+  - name: Extract the dispatch arifact
+    ansible.builtin.unarchive:
+      src: /tmp/dispatch.zip
+      dest: /app
+      remote_src: yes
+
+  - name: Download the dependencies and build the software
+    ansible.builtin.command:
+    argv:
+      - go mod init dispatch
+      - go get
+      - go build
+      chdir: /app
+
+  - name: Copy dispatch service
+    ansible.builtin.copy:
+      src: dispatch.service
+      dest: /etc/systemd/system/dispatch.service
+
+  - name: daemon reload:
+    ansible.builtin.systemd:
+      daemon_reload: true
+
+  - name: Start and enable the dispatch
+    ansible.builtin.service:
+      name: dispatch
+      state: started
+      enabled: true
